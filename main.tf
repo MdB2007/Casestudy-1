@@ -11,7 +11,6 @@ terraform {
 
 provider "aws" {
   region = "eu-central-1" # pas aan naar jouw regio
-  profile = "default" # of de naam van jouw profiel in ~/.aws/config)
 }
 
 # Test resource: haalt info op over de caller
