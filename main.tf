@@ -10,10 +10,10 @@ terraform {
 }
 
 provider "aws" {
-  region = "eu-central-1" # pas aan naar jouw regio
+  region = "eu-central-1"
 }
 
-# Test resource: haalt info op over de caller
+
 data "aws_caller_identity" "current" {}
 
 output "account_id" {
