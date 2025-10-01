@@ -17,6 +17,7 @@ resource "aws_instance" "nat" {
   associate_public_ip_address = true
   source_dest_check           = false # cruciaal voor NAT
   vpc_security_group_ids      = [aws_security_group.nat_sg.id]
+  key_name                    = var.key_name
 
   user_data = <<-EOF
               #!/bin/bash

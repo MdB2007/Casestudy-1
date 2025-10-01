@@ -1,0 +1,1 @@
+{"Modules":[{"Key":"","Source":"","Dir":"."},{"Key":"openvpn","Source":"git::https://github.com/dumrauf/openvpn-terraform-install.git","Dir":".terraform/modules/openvpn"}]}

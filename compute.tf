@@ -29,14 +29,42 @@ resource "aws_instance" "webserver" {
     volume_size = 8
   }
 
-  user_data = <<-EOT
-    #!/bin/bash
-    apt-get update -y
-    apt-get install -y nginx
-    echo '<h1>Hello from Terraform on instance ${count.index}</h1>' > /var/www/html/index.html
-    systemctl enable nginx
-    systemctl start nginx
-  EOT
+user_data = <<-EOT
+  #!/bin/bash
+  apt-get update -y
+  apt-get install -y nginx wget curl
+
+  echo '<h1>Hello from Terraform on instance ${count.index}</h1>' > /var/www/html/index.html
+  systemctl enable nginx
+  systemctl start nginx
+
+  # Node Exporter installeren
+  useradd -rs /bin/false node_exporter
+  wget https://github.com/prometheus/node_exporter/releases/download/v1.8.0/node_exporter-1.8.0.linux-amd64.tar.gz
+  tar xvfz node_exporter-1.8.0.linux-amd64.tar.gz
+  cp node_exporter-1.8.0.linux-amd64/node_exporter /usr/local/bin/
+
+  cat <<EOF > /etc/systemd/system/node_exporter.service
+  [Unit]
+  Description=Node Exporter
+  After=network.target
+
+  [Service]
+  User=node_exporter
+  Group=node_exporter
+  Type=simple
+  ExecStart=/usr/local/bin/node_exporter
+
+  [Install]
+  WantedBy=multi-user.target
+  EOF
+
+  systemctl daemon-reexec
+  systemctl daemon-reload
+  systemctl enable node_exporter
+  systemctl start node_exporter
+EOT
+
 
   tags = { Name = "webserver-${count.index}" }
 }
@@ -145,13 +173,26 @@ resource "aws_instance" "prometheus" {
     volume_size = 8
   }
 
-  user_data = <<-EOT
+user_data = <<-EOT
     #!/bin/bash
     apt-get update -y
     apt-get install -y prometheus
+
+    # Prometheus config (alle webservers scrapen op poort 9100)
+    cat <<EOF > /etc/prometheus/prometheus.yml
+    global:
+      scrape_interval: 15s
+
+    scrape_configs:
+      - job_name: 'webservers'
+        static_configs:
+          - targets: ${jsonencode([for i in aws_instance.webserver : "${i.private_ip}:9100"])}
+    EOF
+
     systemctl enable prometheus
-    systemctl start prometheus
+    systemctl restart prometheus
   EOT
+
 
   tags = { Name = "prometheus-server" }
 }
@@ -169,17 +210,100 @@ resource "aws_instance" "grafana" {
     volume_size = 8
   }
 
-  user_data = <<-EOT
+    user_data = <<-EOT
     #!/bin/bash
     apt-get update -y
-    apt-get install -y apt-transport-https
-    echo "deb https://packages.grafana.com/oss/deb stable main" | tee -a /etc/apt/sources.list.d/grafana.list
-    curl https://packages.grafana.com/gpg.key | sudo apt-key add -
+    apt-get install -y apt-transport-https software-properties-common wget curl
+    echo "deb https://packages.grafana.com/oss/deb stable main" > /etc/apt/sources.list.d/grafana.list
+    curl https://packages.grafana.com/gpg.key | apt-key add -
     apt-get update -y
     apt-get install -y grafana
+
+    # Datasource config
+    mkdir -p /etc/grafana/provisioning/datasources
+    cat <<EOF > /etc/grafana/provisioning/datasources/prometheus.yml
+    apiVersion: 1
+
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://${aws_instance.prometheus.private_ip}:9090
+        isDefault: true
+    EOF
+
+    # Dashboard provisioning config
+    mkdir -p /etc/grafana/provisioning/dashboards
+    mkdir -p /var/lib/grafana/dashboards
+    cat <<EOF > /etc/grafana/provisioning/dashboards/default.yml
+    apiVersion: 1
+
+    providers:
+      - name: "default"
+        orgId: 1
+        folder: ""
+        type: file
+        disableDeletion: false
+        editable: true
+        updateIntervalSeconds: 10
+        options:
+          path: /var/lib/grafana/dashboards
+    EOF
+
+    # Webserver Metrics dashboard
+    cat <<EOF > /var/lib/grafana/dashboards/webserver-metrics.json
+    {
+      "id": null,
+      "uid": "webserver-metrics",
+      "title": "Webserver Metrics",
+      "timezone": "browser",
+      "schemaVersion": 36,
+      "version": 1,
+      "panels": [
+        {
+          "type": "timeseries",
+          "title": "CPU Usage (%)",
+          "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+          "targets": [
+            {
+              "expr": "100 - (avg by (instance) (irate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+              "legendFormat": "{{instance}}"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Network In (bytes/s)",
+          "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+          "targets": [
+            {
+              "expr": "sum by (instance) (irate(node_network_receive_bytes_total[5m]))",
+              "legendFormat": "{{instance}}"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Network Out (bytes/s)",
+          "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+          "targets": [
+            {
+              "expr": "sum by (instance) (irate(node_network_transmit_bytes_total[5m]))",
+              "legendFormat": "{{instance}}"
+            }
+          ]
+        }
+      ]
+    }
+    EOF
+
+    # Fix ownership zodat Grafana kan lezen
+    chown -R grafana:grafana /var/lib/grafana/dashboards
+
     systemctl enable grafana-server
-    systemctl start grafana-server
+    systemctl restart grafana-server
   EOT
+
 
   tags = { Name = "grafana-server" }
 }

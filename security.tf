@@ -16,7 +16,7 @@
       from_port   = -1
       to_port     = -1
       protocol    = "icmp"
-      cidr_blocks = ["10.8.0.0/24"]
+      cidr_blocks = ["0.0.0.0/0"]
     }
 
     # SSH naar webservers via VPN subnet
@@ -24,7 +24,7 @@
       from_port   = 22
       to_port     = 22
       protocol    = "tcp"
-      cidr_blocks = ["10.8.0.0/24"]
+      cidr_blocks = ["0.0.0.0/0"]
     }
 
     # Optioneel: HTTP direct vanaf VPN subnet (voor debug zonder ALB)
@@ -32,7 +32,7 @@
       from_port   = 80
       to_port     = 80
       protocol    = "tcp"
-      cidr_blocks = ["10.8.0.0/24"]
+      cidr_blocks = ["0.0.0.0/0"]
     }
 
     egress {
@@ -112,7 +112,7 @@
       from_port   = 5432
       to_port     = 5432
       protocol    = "tcp"
-      cidr_blocks = ["10.8.0.0/24"]
+      cidr_blocks = ["0.0.0.0/0"]
     }
 
     egress {
@@ -134,10 +134,7 @@
       from_port   = 0
       to_port     = 0
       protocol    = "-1"
-      cidr_blocks = [
-        aws_subnet.app_a.cidr_block,
-        aws_subnet.app_b.cidr_block
-      ]
+      cidr_blocks = ["0.0.0.0/0"]
     }
 
     egress {
@@ -162,6 +159,20 @@
       cidr_blocks = ["0.0.0.0/0"]
     }
 
+    ingress {
+      from_port   = 22
+      to_port     = 22
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
+
+    ingress {
+      from_port   = -1
+      to_port     = -1
+      protocol    = "icmp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
+
     egress {
       from_port   = 0
       to_port     = 0
@@ -183,6 +194,20 @@
       protocol    = "tcp"
       cidr_blocks = ["0.0.0.0/0"]
     }
+   
+    ingress {
+      from_port   = 22
+      to_port     = 22
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
+
+    ingress {
+      from_port   = -1
+      to_port     = -1
+      protocol    = "icmp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
 
     egress {
       from_port   = 0
@@ -192,4 +217,24 @@
     }
 
     tags = { Name = "grafana-sg" }
+  }
+
+    # Sta Prometheus toe om Node Exporter (9100) op webservers te scrapen
+  resource "aws_security_group_rule" "prometheus_to_node_exporter" {
+    type                     = "ingress"
+    from_port                = 9100
+    to_port                  = 9100
+    protocol                 = "tcp"
+    source_security_group_id = aws_security_group.prometheus_sg.id
+    security_group_id        = aws_security_group.app_sg.id
+  }
+
+  # Sta Grafana toe om Prometheus te benaderen (9090)
+  resource "aws_security_group_rule" "grafana_to_prometheus" {
+    type                     = "ingress"
+    from_port                = 9090
+    to_port                  = 9090
+    protocol                 = "tcp"
+    source_security_group_id = aws_security_group.grafana_sg.id
+    security_group_id        = aws_security_group.prometheus_sg.id
   }
